@@ -1,0 +1,244 @@
+import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+
+// ===== Shared movement tuning =====
+export const MOVE = {
+  GROUND_ACCEL: 120,
+  AIR_ACCEL: 35,
+  MAX_SPEED: 16,
+  FRICTION: 8,
+  GRAVITY: 35,
+  JUMP_VEL: 12,
+  RADIUS: 0.5,
+};
+
+// Builds a glossy "Tic Tac" capsule mesh in the given color.
+export function makeCapsuleMesh(color) {
+  const mat = new THREE.MeshPhysicalMaterial({
+    color,
+    roughness: 0.15,
+    metalness: 0,
+    clearcoat: 1,
+    clearcoatRoughness: 0.1,
+  });
+  const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 1.2, 8, 16), mat);
+  return mesh;
+}
+
+function makeHpBar() {
+  const bar = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.2, 0.15),
+    new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide })
+  );
+  return bar;
+}
+
+/**
+ * The local, input-driven player. Owns the camera.
+ * This is your original movement/collision code, just wrapped as a class
+ * so main.js can create one instance and call update() each frame.
+ */
+export class PlayerController {
+  constructor(scene, camera, color = 0xffffff) {
+    this.scene = scene;
+    this.mesh = makeCapsuleMesh(color);
+    this.mesh.visible = false; // hide own body from own camera, same as original
+    scene.add(this.mesh);
+
+    this.camPivot = new THREE.Object3D();
+    this.camPivot.position.set(0, 1.6, 0);
+    this.mesh.add(this.camPivot);
+    this.camPivot.add(camera);
+    this.camera = camera;
+
+    this.vel = new THREE.Vector3();
+    this.wish = new THREE.Vector3();
+    this.onGround = true;
+
+    this.yaw = 0;
+    this.pitch = 0;
+
+    this.hp = 100;
+    this.hpBar = makeHpBar();
+    scene.add(this.hpBar);
+  }
+
+  spawn(spawnPoint) {
+    this.mesh.position.set(spawnPoint.x, spawnPoint.y, spawnPoint.z);
+    this.yaw = spawnPoint.yaw || 0;
+    this.pitch = 0;
+    this.vel.set(0, 0, 0);
+    this.hp = 100;
+  }
+
+  applyInput(keys, mouseFiring) {
+    this.wish.set(0, 0, 0);
+    if (keys.KeyW) this.wish.z -= 1;
+    if (keys.KeyS) this.wish.z += 1;
+    if (keys.KeyA) this.wish.x -= 1;
+    if (keys.KeyD) this.wish.x += 1;
+    this.firing = !!mouseFiring;
+  }
+
+  #friction(dt) {
+    const speed = Math.hypot(this.vel.x, this.vel.z);
+    if (speed < 0.001) return;
+    const drop = speed * MOVE.FRICTION * dt;
+    const newSpeed = Math.max(speed - drop, 0);
+    this.vel.x *= newSpeed / speed;
+    this.vel.z *= newSpeed / speed;
+  }
+
+  #resolveWalls(wallBoxes) {
+    for (const box of wallBoxes) {
+      const cx = Math.max(box.min.x, Math.min(this.mesh.position.x, box.max.x));
+      const cz = Math.max(box.min.z, Math.min(this.mesh.position.z, box.max.z));
+      let dx = this.mesh.position.x - cx;
+      let dz = this.mesh.position.z - cz;
+      const dist2 = dx * dx + dz * dz;
+      if (dist2 < MOVE.RADIUS * MOVE.RADIUS) {
+        const dist = Math.sqrt(dist2) || 0.0001;
+        const push = MOVE.RADIUS - dist;
+        dx /= dist;
+        dz /= dist;
+        this.mesh.position.x += dx * push;
+        this.mesh.position.z += dz * push;
+      }
+    }
+  }
+
+  update(dt, wallBoxes, jumpPressed) {
+    this.mesh.rotation.y = this.yaw;
+    this.camPivot.rotation.x = this.pitch;
+
+    const wishWorld = this.wish.clone()
+      .normalize()
+      .applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
+
+    const accel = this.onGround ? MOVE.GROUND_ACCEL : MOVE.AIR_ACCEL;
+    this.vel.x += wishWorld.x * accel * dt;
+    this.vel.z += wishWorld.z * accel * dt;
+
+    const spd = Math.hypot(this.vel.x, this.vel.z);
+    if (spd > MOVE.MAX_SPEED) {
+      this.vel.x *= MOVE.MAX_SPEED / spd;
+      this.vel.z *= MOVE.MAX_SPEED / spd;
+    }
+
+    if (this.onGround) this.#friction(dt);
+
+    if (this.onGround && jumpPressed) {
+      this.vel.y = MOVE.JUMP_VEL;
+      this.onGround = false;
+    }
+
+    this.vel.y -= MOVE.GRAVITY * dt;
+    this.mesh.position.addScaledVector(this.vel, dt);
+
+    if (this.mesh.position.y <= 1.4) {
+      this.mesh.position.y = 1.4;
+      this.vel.y = 0;
+      this.onGround = true;
+    }
+
+    this.#resolveWalls(wallBoxes);
+    this.#updateHpBar();
+  }
+
+  #updateHpBar() {
+    if (this.hp > 0) {
+      this.hpBar.visible = true;
+      this.hpBar.position.copy(this.mesh.position);
+      this.hpBar.position.y += 1.5;
+      this.hpBar.lookAt(this.camera.position);
+      this.hpBar.scale.x = Math.max(this.hp / 100, 0);
+    } else {
+      this.hpBar.visible = false;
+    }
+  }
+
+  // What we send over the network each tick.
+  getNetState() {
+    return {
+      x: this.mesh.position.x,
+      y: this.mesh.position.y,
+      z: this.mesh.position.z,
+      yaw: this.yaw,
+      pitch: this.pitch,
+      hp: this.hp,
+      firing: !!this.firing,
+    };
+  }
+
+  // Called when a 'hit' message arrives from the opponent. Returns true
+  // if this hit was the killing blow (hp crossed from >0 to <=0).
+  takeDamage(amount) {
+    const wasAlive = this.hp > 0;
+    this.hp = Math.max(0, this.hp - amount);
+    return wasAlive && this.hp <= 0;
+  }
+}
+
+/**
+ * A network-driven opponent. No input handling, no physics —
+ * just smoothly interpolates toward whatever state we last received.
+ * This replaces the static "dummy" target.
+ */
+export class RemotePlayer {
+  constructor(scene, color = 0xff4444) {
+    this.scene = scene;
+    this.mesh = makeCapsuleMesh(color);
+    scene.add(this.mesh);
+
+    this.hp = 100;
+    this.hpBar = makeHpBar();
+    scene.add(this.hpBar);
+
+    this.targetPos = this.mesh.position.clone();
+    this.targetYaw = 0;
+    this.visible = true;
+  }
+
+  spawn(spawnPoint) {
+    this.mesh.position.set(spawnPoint.x, spawnPoint.y, spawnPoint.z);
+    this.targetPos.copy(this.mesh.position);
+    this.targetYaw = spawnPoint.yaw || 0;
+    this.hp = 100;
+    this.setVisible(true);
+  }
+
+  // Call this whenever a network snapshot arrives.
+  applyNetState(state) {
+    this.targetPos.set(state.x, state.y, state.z);
+    this.targetYaw = state.yaw;
+    this.hp = state.hp;
+    if (state.hp <= 0) {
+      this.setVisible(false);
+    } else if (!this.visible) {
+      // Opponent respawned — snap straight to their new spot instead of
+      // lerping across the map from wherever they died.
+      this.mesh.position.copy(this.targetPos);
+      this.setVisible(true);
+    }
+  }
+
+  setVisible(v) {
+    this.visible = v;
+    this.mesh.visible = v;
+    this.hpBar.visible = v && this.hp > 0;
+  }
+
+  update(dt, camera) {
+    // Simple exponential smoothing — good enough until real interpolation
+    // (buffered snapshots) gets added alongside networking.
+    const t = Math.min(1, dt * 12);
+    this.mesh.position.lerp(this.targetPos, t);
+    this.mesh.rotation.y += (this.targetYaw - this.mesh.rotation.y) * t;
+
+    if (this.visible && this.hp > 0) {
+      this.hpBar.position.copy(this.mesh.position);
+      this.hpBar.position.y += 1.5;
+      this.hpBar.lookAt(camera.position);
+      this.hpBar.scale.x = Math.max(this.hp / 100, 0);
+    }
+  }
+}

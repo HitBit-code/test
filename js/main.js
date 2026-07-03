@@ -12,17 +12,20 @@ const screens = {
   joining: document.getElementById("screen-joining"),
 };
 const hud = document.getElementById("hud");
+const hudHpCorner = document.getElementById("hud-hp-corner");
 const canvas = document.getElementById("game-canvas");
 
 function showScreen(name) {
   for (const key in screens) screens[key].classList.toggle("hidden", key !== name);
   canvas.classList.add("hidden");
   hud.classList.add("hidden");
+  hudHpCorner.classList.add("hidden");
 }
 function showGame() {
   for (const key in screens) screens[key].classList.add("hidden");
   canvas.classList.remove("hidden");
   hud.classList.remove("hidden");
+  hudHpCorner.classList.remove("hidden");
 }
 
 /* =========================================================
@@ -49,14 +52,22 @@ for (const arena of ARENA_LIST) {
 arenaGrid.firstElementChild.classList.add("selected");
 
 /* =========================================================
+   PLAYER NAME
+========================================================= */
+function getPlayerName() {
+  const raw = document.getElementById("player-name-input").value.trim();
+  return raw || `Player${Math.floor(Math.random() * 900 + 100)}`;
+}
+
+/* =========================================================
    NET
 ========================================================= */
 const net = new Net();
 let myColor, oppColor;
 
 /* ---- HOST FLOW ---- */
-document.getElementById("btn-host").addEventListener("click", async () => {
-  showScreen("hostWait");
+async function attemptHost() {
+  document.getElementById("btn-retry-host").classList.add("hidden");
   document.getElementById("host-code-display").textContent = "------";
   document.getElementById("host-status").textContent = "Getting a code...";
 
@@ -68,12 +79,32 @@ document.getElementById("btn-host").addEventListener("click", async () => {
     net.onPeerConnected = () => {
       myColor = 0xffffff;   // host = white
       oppColor = 0xff4d6a;  // joiner = candy red
-      net.send({ t: "arena", arenaId: selectedArenaId, hostColor: myColor, joinColor: oppColor });
-      startMatch(selectedArenaId, true, myColor, oppColor);
+      const myName = getPlayerName();
+      net.send({
+        t: "arena",
+        arenaId: selectedArenaId,
+        hostColor: myColor,
+        joinColor: oppColor,
+        hostName: myName,
+      });
+      startMatch(selectedArenaId, true, myColor, oppColor, "Opponent");
     };
   } catch (err) {
-    document.getElementById("host-status").textContent = "Failed to host: " + err.message;
+    console.error("Host failed:", err);
+    document.getElementById("host-status").textContent =
+      `Failed to host: ${err.message || err.type || "unknown error"} (see console for details)`;
+    document.getElementById("btn-retry-host").classList.remove("hidden");
   }
+}
+
+document.getElementById("btn-host").addEventListener("click", () => {
+  showScreen("hostWait");
+  attemptHost();
+});
+
+document.getElementById("btn-retry-host").addEventListener("click", () => {
+  net.destroy();
+  attemptHost();
 });
 
 document.getElementById("btn-cancel-host").addEventListener("click", () => {
@@ -99,7 +130,8 @@ document.getElementById("btn-join-confirm").addEventListener("click", async () =
     if (msg.t === "arena") {
       myColor = msg.joinColor;
       oppColor = msg.hostColor;
-      startMatch(msg.arenaId, false, myColor, oppColor);
+      startMatch(msg.arenaId, false, myColor, oppColor, msg.hostName || "Opponent");
+      net.send({ t: "hello", name: getPlayerName() });
     }
   };
 
@@ -107,7 +139,9 @@ document.getElementById("btn-join-confirm").addEventListener("click", async () =
     await net.join(code);
     document.getElementById("join-status").textContent = "Connected. Waiting for arena...";
   } catch (err) {
-    document.getElementById("join-status").textContent = "Couldn't connect: " + err.message;
+    console.error("Join failed:", err);
+    document.getElementById("join-status").textContent =
+      `Couldn't connect: ${err.message || err.type || "unknown error"} (see console for details)`;
   }
 });
 
@@ -223,20 +257,20 @@ async function buildArena(arena) {
   }
 }
 
-async function startMatch(arenaId, isHost, colorMe, colorOpp) {
+async function startMatch(arenaId, isHost, colorMe, colorOpp, oppName) {
   const arena = getArena(arenaId);
   await buildArena(arena);
 
   mySpawn = isHost ? arena.spawns[0] : arena.spawns[1];
   oppSpawn = isHost ? arena.spawns[1] : arena.spawns[0];
 
-  if (local) scene.remove(local.mesh, local.hpBar);
-  if (remote) scene.remove(remote.mesh, remote.hpBar);
+  if (local) scene.remove(local.mesh);
+  if (remote) scene.remove(remote.mesh, remote.hpBar, remote.nameSprite);
 
   local = new PlayerController(scene, camera, colorMe);
   local.spawn(mySpawn);
 
-  remote = new RemotePlayer(scene, colorOpp);
+  remote = new RemotePlayer(scene, colorOpp, oppName);
   remote.spawn(oppSpawn);
 
   if (laser) scene.remove(laser);
@@ -279,6 +313,8 @@ function handleNetData(msg) {
   } else if (msg.t === "died") {
     myKills++;
     updateScoreHud();
+  } else if (msg.t === "hello") {
+    remote.setName(msg.name);
   }
 }
 
@@ -360,7 +396,7 @@ function loop() {
     net.send({ t: "state", ...local.getNetState() });
   }
 
-  document.getElementById("hud-hp").textContent = `HP ${Math.ceil(local.hp)}`;
+  document.getElementById("hud-hp-value").textContent = Math.ceil(local.hp);
 
   renderer.render(scene, camera);
 }

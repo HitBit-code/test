@@ -32,6 +32,37 @@ function makeHpBar() {
   return bar;
 }
 
+// A billboard text sprite for a player's name tag, floating above their capsule.
+function makeNameSprite(name) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+
+  function draw(text) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.font = "600 34px 'Space Grotesk', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    const w = ctx.measureText(text).width;
+    ctx.fillRect(canvas.width / 2 - w / 2 - 14, canvas.height / 2 - 22, w + 28, 44);
+    ctx.fillStyle = "#e8fff4";
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+  }
+  draw(name || "Player");
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
+  sprite.scale.set(1.4, 0.35, 1);
+  sprite.renderOrder = 999;
+  sprite.userData.setText = (text) => {
+    draw(text);
+    texture.needsUpdate = true;
+  };
+  return sprite;
+}
+
 /**
  * The local, input-driven player. Owns the camera.
  * This is your original movement/collision code, just wrapped as a class
@@ -58,8 +89,6 @@ export class PlayerController {
     this.pitch = 0;
 
     this.hp = 100;
-    this.hpBar = makeHpBar();
-    scene.add(this.hpBar);
   }
 
   spawn(spawnPoint) {
@@ -141,19 +170,6 @@ export class PlayerController {
     }
 
     this.#resolveWalls(wallBoxes);
-    this.#updateHpBar();
-  }
-
-  #updateHpBar() {
-    if (this.hp > 0) {
-      this.hpBar.visible = true;
-      this.hpBar.position.copy(this.mesh.position);
-      this.hpBar.position.y += 1.5;
-      this.hpBar.lookAt(this.camera.position);
-      this.hpBar.scale.x = Math.max(this.hp / 100, 0);
-    } else {
-      this.hpBar.visible = false;
-    }
   }
 
   // What we send over the network each tick.
@@ -184,7 +200,7 @@ export class PlayerController {
  * This replaces the static "dummy" target.
  */
 export class RemotePlayer {
-  constructor(scene, color = 0xff4444) {
+  constructor(scene, color = 0xff4444, name = "Opponent") {
     this.scene = scene;
     this.mesh = makeCapsuleMesh(color);
     scene.add(this.mesh);
@@ -193,9 +209,16 @@ export class RemotePlayer {
     this.hpBar = makeHpBar();
     scene.add(this.hpBar);
 
+    this.nameSprite = makeNameSprite(name);
+    scene.add(this.nameSprite);
+
     this.targetPos = this.mesh.position.clone();
     this.targetYaw = 0;
     this.visible = true;
+  }
+
+  setName(name) {
+    this.nameSprite.userData.setText(name);
   }
 
   spawn(spawnPoint) {
@@ -225,6 +248,7 @@ export class RemotePlayer {
     this.visible = v;
     this.mesh.visible = v;
     this.hpBar.visible = v && this.hp > 0;
+    this.nameSprite.visible = v && this.hp > 0;
   }
 
   update(dt, camera) {
@@ -239,6 +263,9 @@ export class RemotePlayer {
       this.hpBar.position.y += 1.5;
       this.hpBar.lookAt(camera.position);
       this.hpBar.scale.x = Math.max(this.hp / 100, 0);
+
+      this.nameSprite.position.copy(this.mesh.position);
+      this.nameSprite.position.y += 1.85;
     }
   }
 }

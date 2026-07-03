@@ -13,6 +13,8 @@
       <h1 class="logo">LG<span>DUELS</span></h1>
       <p class="tagline">Pick an arena. Host or drop in.</p>
 
+      <input id="player-name-input" class="name-input" maxlength="16" placeholder="Your name">
+
       <div id="arena-grid" class="arena-grid"></div>
 
       <div class="menu-actions">
@@ -28,7 +30,10 @@
       <p class="eyebrow">Share this code</p>
       <div id="host-code-display" class="code-pills">------</div>
       <p id="host-status" class="status-text">Getting a code...</p>
-      <button id="btn-cancel-host" class="btn btn-secondary">Cancel</button>
+      <div class="menu-actions">
+        <button id="btn-retry-host" class="btn btn-primary hidden">Retry</button>
+        <button id="btn-cancel-host" class="btn btn-secondary">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -48,9 +53,12 @@
   <!-- ===================== GAME ===================== -->
   <canvas id="game-canvas" class="hidden"></canvas>
   <div id="hud" class="hidden">
-    <div id="hud-hp">HP 100</div>
     <div id="hud-score">Kills 0 · Deaths 0</div>
     <div id="hud-controls">Click lock · WASD · Space jump · Hold click = LG</div>
+  </div>
+  <div id="hud-hp-corner" class="hidden">
+    <span id="hud-hp-label">HP</span>
+    <span id="hud-hp-value">100</span>
   </div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>

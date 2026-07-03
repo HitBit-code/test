@@ -8,7 +8,7 @@ export default {
   wallHeight: 4,
 
   textures: {
-    floor: "./assets/textures/pillarfloor.png",
+    floor: "./assets/textures/floor.png",
     wall: "./assets/textures/pillarwall.png",
     pillar: "./assets/textures/pillarwall.png",
   },

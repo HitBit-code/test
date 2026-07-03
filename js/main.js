@@ -381,6 +381,11 @@ function routeHit(msg, fromId) {
       local.spawn(mySpawn);
       routeDied({ attackerId: msg.attackerId });
     }
+    // Send an immediate update instead of waiting for the next scheduled
+    // tick — that tick lives in the render loop, which browsers throttle
+    // hard in backgrounded tabs, so hp changes could take seconds to show
+    // up for the shooter otherwise.
+    net.broadcast({ t: "state", id: myId, ...local.getNetState() });
   } else {
     net.broadcast(msg, fromId); // forward on; the real target will pick it up
   }
@@ -413,6 +418,9 @@ function handleClientData(msg) {
       local.spawn(mySpawn);
       net.broadcast({ t: "died", attackerId: msg.attackerId });
     }
+    // Same fix as the host side — don't wait for the render-loop tick,
+    // which stalls badly when this tab isn't focused.
+    net.broadcast({ t: "state", id: myId, ...local.getNetState() });
   } else if (msg.t === "died") {
     if (msg.attackerId !== myId) return;
     myKills++;
@@ -475,8 +483,16 @@ addEventListener("mousemove", (e) => {
    MAIN LOOP
 ========================================================= */
 let last = performance.now();
-let netSendAccum = 0;
-const NET_SEND_INTERVAL = 1 / 20; // 20Hz state sync
+
+// Runs on setInterval rather than inside the rAF loop below — rAF gets
+// throttled hard (often to ~1fps) in backgrounded/unfocused tabs, which
+// would otherwise make a player's position and hp appear frozen to
+// everyone else whenever their tab isn't in focus.
+setInterval(() => {
+  if (matchActive && local) {
+    net.broadcast({ t: "state", id: myId, ...local.getNetState() });
+  }
+}, 50); // 20Hz
 
 function loop() {
   requestAnimationFrame(loop);
@@ -527,13 +543,6 @@ function loop() {
     }
   } else {
     laser.visible = false;
-  }
-
-  /* Periodic state broadcast */
-  netSendAccum += dt;
-  if (netSendAccum >= NET_SEND_INTERVAL) {
-    netSendAccum = 0;
-    net.broadcast({ t: "state", id: myId, ...local.getNetState() });
   }
 
   document.getElementById("hud-hp-value").textContent = Math.ceil(local.hp);

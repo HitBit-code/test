@@ -33,7 +33,9 @@ export default {
   ],
 
   spawns: [
-    { x: -9, y: 3.0, z: -9, yaw: Math.PI / 4 },   // on top of the first platform
-    { x: 9, y: 3.0, z: 9, yaw: -3 * Math.PI / 4 }, // on top of the second
+    { x: -9, y: 3.0, z: -9, yaw: Math.PI / 4 },    // on the first platform
+    { x: 9, y: 3.0, z: 9, yaw: -3 * Math.PI / 4 }, // on the second platform
+    { x: -9, y: 1.4, z: 9, yaw: -Math.PI / 4 },    // ground level, corner 3
+    { x: 9, y: 1.4, z: -9, yaw: 3 * Math.PI / 4 }, // ground level, corner 4
   ],
 };

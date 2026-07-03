@@ -34,5 +34,7 @@ export default {
   spawns: [
     { x: -9, y: 1.4, z: -9, yaw: Math.PI / 4 },
     { x: 9, y: 1.4, z: 9, yaw: -3 * Math.PI / 4 },
+    { x: -9, y: 1.4, z: 9, yaw: -Math.PI / 4 },
+    { x: 9, y: 1.4, z: -9, yaw: 3 * Math.PI / 4 },
   ],
 };

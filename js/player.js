@@ -64,15 +64,15 @@ function makeNameSprite(name) {
 }
 
 /**
- * The local, input-driven player. Owns the camera.
- * This is your original movement/collision code, just wrapped as a class
- * so main.js can create one instance and call update() each frame.
+ * The local, input-driven player. Owns the camera. No hp bar / name tag —
+ * those only make sense floating above OTHER players; your own hp lives
+ * in the HUD instead.
  */
 export class PlayerController {
   constructor(scene, camera, color = 0xffffff) {
     this.scene = scene;
     this.mesh = makeCapsuleMesh(color);
-    this.mesh.visible = false; // hide own body from own camera, same as original
+    this.mesh.visible = false; // hide own body from own camera
     scene.add(this.mesh);
 
     this.camPivot = new THREE.Object3D();
@@ -172,7 +172,7 @@ export class PlayerController {
     this.#resolveWalls(wallBoxes);
   }
 
-  // What we send over the network each tick.
+  // What we broadcast over the network each tick.
   getNetState() {
     return {
       x: this.mesh.position.x,
@@ -181,12 +181,10 @@ export class PlayerController {
       yaw: this.yaw,
       pitch: this.pitch,
       hp: this.hp,
-      firing: !!this.firing,
     };
   }
 
-  // Called when a 'hit' message arrives from the opponent. Returns true
-  // if this hit was the killing blow (hp crossed from >0 to <=0).
+  // Returns true if this hit was the killing blow.
   takeDamage(amount) {
     const wasAlive = this.hp > 0;
     this.hp = Math.max(0, this.hp - amount);
@@ -195,12 +193,13 @@ export class PlayerController {
 }
 
 /**
- * A network-driven opponent. No input handling, no physics —
- * just smoothly interpolates toward whatever state we last received.
- * This replaces the static "dummy" target.
+ * A network-driven player (anyone that isn't "me"). No input handling, no
+ * physics — just smoothly interpolates toward the last received snapshot.
+ * Has an hp bar and name tag, both true world-space billboards (Y-axis
+ * rotation only) so they always face the camera without tilting oddly.
  */
 export class RemotePlayer {
-  constructor(scene, color = 0xff4444, name = "Opponent") {
+  constructor(scene, color = 0xff4444, name = "Player") {
     this.scene = scene;
     this.mesh = makeCapsuleMesh(color);
     scene.add(this.mesh);
@@ -237,8 +236,7 @@ export class RemotePlayer {
     if (state.hp <= 0) {
       this.setVisible(false);
     } else if (!this.visible) {
-      // Opponent respawned — snap straight to their new spot instead of
-      // lerping across the map from wherever they died.
+      // Respawned — snap straight there instead of lerping across the map.
       this.mesh.position.copy(this.targetPos);
       this.setVisible(true);
     }
@@ -251,9 +249,11 @@ export class RemotePlayer {
     this.nameSprite.visible = v && this.hp > 0;
   }
 
+  dispose() {
+    this.scene.remove(this.mesh, this.hpBar, this.nameSprite);
+  }
+
   update(dt, camera) {
-    // Simple exponential smoothing — good enough until real interpolation
-    // (buffered snapshots) gets added alongside networking.
     const t = Math.min(1, dt * 12);
     this.mesh.position.lerp(this.targetPos, t);
     this.mesh.rotation.y += (this.targetYaw - this.mesh.rotation.y) * t;
@@ -261,7 +261,11 @@ export class RemotePlayer {
     if (this.visible && this.hp > 0) {
       this.hpBar.position.copy(this.mesh.position);
       this.hpBar.position.y += 1.5;
-      this.hpBar.lookAt(camera.position);
+      // Billboard on the Y axis only — keeps the bar upright and always
+      // facing the camera left/right, without tilting when you look up/down.
+      const dx = camera.position.x - this.hpBar.position.x;
+      const dz = camera.position.z - this.hpBar.position.z;
+      this.hpBar.rotation.y = Math.atan2(dx, dz);
       this.hpBar.scale.x = Math.max(this.hp / 100, 0);
 
       this.nameSprite.position.copy(this.mesh.position);
